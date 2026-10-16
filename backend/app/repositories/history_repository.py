@@ -1,3 +1,7 @@
+import re
+import time
+from functools import lru_cache
+
 from sqlalchemy import text
 from ..config import settings
 from ..db import history_connection
@@ -7,13 +11,96 @@ def _table():
     return f"{settings.history_schema}.{settings.history_table}"
 
 
+def _cache_bucket():
+    return int(time.time() // 300)
+
+
+def _normalize_season(value) -> str:
+    """Padroniza temporada para YYYY/YYYY."""
+    if value is None:
+        return ""
+
+    raw = str(value).strip()
+    if not raw:
+        return ""
+
+    raw = raw.replace("-", "/")
+
+    m = re.fullmatch(r"(\d{4})/(\d{4})", raw)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}"
+
+    m = re.fullmatch(r"(\d{4})/(\d{2})", raw)
+    if m:
+        start = int(m.group(1))
+        end2 = int(m.group(2))
+        century = (start // 100) * 100
+        end = century + end2
+        if end < start:
+            end += 100
+        return f"{start:04d}/{end:04d}"
+
+    m = re.fullmatch(r"(\d{4})", raw)
+    if m:
+        start = int(m.group(1))
+        return f"{start:04d}/{start + 1:04d}"
+
+    return raw
+
+
+def _season_sort_key(value: str):
+    normalized = _normalize_season(value)
+    m = re.fullmatch(r"(\d{4})/(\d{4})", normalized)
+    if m:
+        return (int(m.group(1)), int(m.group(2)))
+    return (-1, -1)
+
+
+def _season_candidates(value: str) -> list[str]:
+    """
+    Aceita no banco as variações antigas, mas expõe ao frontend só YYYY/YYYY.
+    Ex.: 2026/2027 também encontra 2026/27, 2026-2027, 2026-27 e 2026.
+    """
+    normalized = _normalize_season(value)
+    m = re.fullmatch(r"(\d{4})/(\d{4})", normalized)
+    if not m:
+        return [str(value).strip()]
+
+    start = m.group(1)
+    end = m.group(2)
+    short_end = end[-2:]
+
+    return list(dict.fromkeys([
+        f"{start}/{end}",
+        f"{start}/{short_end}",
+        f"{start}-{end}",
+        f"{start}-{short_end}",
+        start,
+    ]))
+
+
+def _season_filter_clause(value: str, prefix: str = "season"):
+    candidates = _season_candidates(value)
+    clauses = []
+    params = {}
+    for idx, candidate in enumerate(candidates):
+        key = f"{prefix}_{idx}"
+        clauses.append(f"temporada::text = :{key}")
+        params[key] = candidate
+    return "(" + " OR ".join(clauses) + ")", params
+
+
 def _base_filters(filters: dict, skip: str | None = None):
     clauses, params = [], {}
     def add(key, sql, value):
         if skip != key and value not in (None, "", []):
             clauses.append(sql); params[key] = value
     add("country", "pais = :country", filters.get("country"))
-    add("season", "temporada::text = :season", filters.get("season"))
+    season = filters.get("season")
+    if skip != "season" and season not in (None, "", []):
+        season_clause, season_params = _season_filter_clause(str(season), "season")
+        clauses.append(season_clause)
+        params.update(season_params)
     add("competition", "campeonato = :competition", filters.get("competition"))
     add("round", "rodada::text = :round", filters.get("round"))
     add("home", "casa = :home", filters.get("home"))
@@ -67,7 +154,15 @@ def options(filters: dict):
         """), params)]
     return {
         "countries": _distinct_scalar("pais", filters, "country"),
-        "seasons": [str(x) for x in _distinct_scalar("temporada", filters, "season")],
+        "seasons": sorted(
+            {
+                _normalize_season(x)
+                for x in _distinct_scalar("temporada", filters, "season")
+                if _normalize_season(x)
+            },
+            key=_season_sort_key,
+            reverse=True,
+        ),
         "competitions": _distinct_scalar("campeonato", filters, "competition"),
         "rounds": [str(x) for x in _distinct_scalar("rodada", filters, "round")],
         "home_teams": _distinct_scalar("casa", filters, "home"),
@@ -110,25 +205,34 @@ def search(filters: dict, page: int = 1, page_size: int = 50):
     stats["percentual_vitorias_fora"] = round(stats["vitorias_fora"] / n * 100, 2) if n else 0
     stats["total_gols"] = stats["gols_casa"] + stats["gols_fora"]
     for row in rows:
-        if row.get("data") is not None: row["data"] = str(row["data"])
+        if row.get("data") is not None:
+            row["data"] = str(row["data"])
+        if row.get("temporada") is not None:
+            row["temporada"] = _normalize_season(row["temporada"])
     return {"total": total, "page": page, "page_size": page_size, "stats": stats, "rows": rows}
 
 
-def competition_games(country: str, competition: str, season: str):
+@lru_cache(maxsize=256)
+def _competition_games_cached(country: str, competition: str, season: str, bucket: int):
+    season_clause, season_params = _season_filter_clause(season, "competition_season")
     with history_connection() as conn:
         rows = conn.execute(text(f"""
             SELECT id, jogo_id, data, rodada, casa, fora, gols_casa, gols_fora
             FROM {_table()}
-            WHERE pais = :country AND campeonato = :competition AND temporada::text = :season
+            WHERE pais = :country AND campeonato = :competition AND {season_clause}
               AND gols_casa IS NOT NULL AND gols_fora IS NOT NULL
             ORDER BY data ASC NULLS LAST, id ASC
-        """), {"country":country,"competition":competition,"season":season}).mappings().all()
-    return [dict(r) for r in rows]
+        """), {"country": country, "competition": competition, **season_params}).mappings().all()
+    return tuple(dict(r) for r in rows)
 
 
-def club_games(names: list[str], country: str | None = None, competition: str | None = None,
-               season: str | None = None, venue: str = "all"):
-    if not names: return []
+def competition_games(country: str, competition: str, season: str):
+    return [dict(r) for r in _competition_games_cached(country, competition, season, _cache_bucket())]
+
+
+@lru_cache(maxsize=1024)
+def _club_games_cached(names: tuple[str, ...], country: str | None, competition: str | None, season: str | None, venue: str, bucket: int):
+    if not names: return tuple()
     params = {}
     home_parts=[]; away_parts=[]
     for i,name in enumerate(names):
@@ -141,7 +245,9 @@ def club_games(names: list[str], country: str | None = None, competition: str | 
     clauses=[club_clause]
     if country: clauses.append("pais = :country"); params["country"]=country
     if competition: clauses.append("campeonato = :competition"); params["competition"]=competition
-    if season: clauses.append("temporada::text = :season"); params["season"]=season
+    if season:
+        season_clause, season_params = _season_filter_clause(season, "club_season")
+        clauses.append(season_clause); params.update(season_params)
     with history_connection() as conn:
         rows = conn.execute(text(f"""
             SELECT id, jogo_id, data, temporada, campeonato, pais, rodada, casa, fora, gols_casa, gols_fora
@@ -149,4 +255,9 @@ def club_games(names: list[str], country: str | None = None, competition: str | 
             WHERE {' AND '.join(clauses)} AND gols_casa IS NOT NULL AND gols_fora IS NOT NULL
             ORDER BY data DESC NULLS LAST, id DESC
         """), params).mappings().all()
-    return [dict(r) for r in rows]
+    return tuple(dict(r) for r in rows)
+
+
+def club_games(names: list[str], country: str | None = None, competition: str | None = None,
+               season: str | None = None, venue: str = "all"):
+    return [dict(r) for r in _club_games_cached(tuple(names), country, competition, season, venue, _cache_bucket())]

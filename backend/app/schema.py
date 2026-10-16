@@ -80,6 +80,18 @@ DDL = [
     )
     """,
     """
+    CREATE TABLE IF NOT EXISTS {schema}.clubes_conciliacao (
+        id BIGSERIAL PRIMARY KEY,
+        campeonato_id BIGINT NOT NULL REFERENCES {schema}.campeonatos(id) ON DELETE CASCADE,
+        nome_original TEXT NOT NULL,
+        nome_normalizado TEXT NOT NULL,
+        nome_padrao TEXT NOT NULL,
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        CONSTRAINT ux_conciliacao_comp_nome UNIQUE (campeonato_id, nome_normalizado)
+    )
+    """,
+    """
     CREATE TABLE IF NOT EXISTS {schema}.odds_importacoes (
         id BIGSERIAL PRIMARY KEY,
         pais_id BIGINT NOT NULL REFERENCES {schema}.paises(id) ON DELETE RESTRICT,
@@ -180,13 +192,36 @@ DDL = [
         criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS {schema}.scanner_metodos (
+        id BIGSERIAL PRIMARY KEY,
+        nome TEXT NOT NULL,
+        mercado TEXT NOT NULL CHECK (mercado IN ('home','draw','away','over25','under25')),
+        condicoes JSONB NOT NULL DEFAULT '[]'::jsonb,
+        criado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        atualizado_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+    """,
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_scanner_metodos_nome_lower ON {schema}.scanner_metodos ((LOWER(nome)))",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_paises_nome_lower ON {schema}.paises ((LOWER(nome)))",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_campeonatos_pais_nome_lower ON {schema}.campeonatos (pais_id, (LOWER(nome)))",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_campeonatos_principal_pais ON {schema}.campeonatos (pais_id) WHERE principal",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_clubes_pais_nome_lower ON {schema}.clubes (pais_id, (LOWER(nome)))",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_vm_temporada_campeonato_clube ON {schema}.valores_mercado (temporada, campeonato_id, clube_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_alias_campeonato_lower ON {schema}.clubes_aliases (COALESCE(campeonato_id,0), (LOWER(alias)))",
+    """
+    DELETE FROM {schema}.odds_jogos old
+    USING {schema}.odds_jogos newer
+    WHERE old.id < newer.id
+      AND old.campeonato_id = newer.campeonato_id
+      AND old.temporada = newer.temporada
+      AND old.data = newer.data
+      AND old.clube_casa_id = newer.clube_casa_id
+      AND old.clube_fora_id = newer.clube_fora_id
+      AND old.data IS NOT NULL
+    """,
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_odds_source_key ON {schema}.odds_jogos (source_key)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS ux_odds_match_identity ON {schema}.odds_jogos (campeonato_id, temporada, data, clube_casa_id, clube_fora_id) WHERE data IS NOT NULL",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_elo_temporada ON {schema}.elo_temporadas (campeonato_id, temporada)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_elo_clube ON {schema}.elo_clubes (campeonato_id, temporada, clube_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_elo_movimento_jogo ON {schema}.elo_movimentos (campeonato_id, temporada, history_game_key)",

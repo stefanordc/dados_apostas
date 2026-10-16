@@ -57,6 +57,31 @@ def clean_url(value) -> str | None:
     return raw
 
 
+def parse_season(value) -> str | None:
+    """
+    Formatos aceitos:
+    - YYYY      -> exemplo: 2026
+    - YYYY/YYYY -> exemplo: 2026/2027
+
+    O valor é preservado exatamente nesse padrão, sem transformar
+    campeonatos de ano-calendário em temporada cruzando dois anos.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+
+    if re.fullmatch(r"\d{4}", raw):
+        return raw
+
+    if re.fullmatch(r"\d{4}/\d{4}", raw):
+        start, end = (int(x) for x in raw.split("/", 1))
+        if end != start + 1:
+            return None
+        return f"{start:04d}/{end:04d}"
+
+    return None
+
+
 def _cells_markdown(line: str) -> list[str]:
     line = line.strip()
     if line.startswith("|"):
@@ -152,7 +177,7 @@ def parse_rows(raw_text: str):
     seen = set()
 
     for index, row in enumerate(raw_rows, 1):
-        season = str(row.get(found["season"]) or "").strip()
+        season = parse_season(row.get(found["season"]))
         club = str(row.get(found["club"]) or "").strip()
         value = parse_market_value(row.get(found["value"]))
         crest = clean_url(row.get(found.get("crest", ""))) if "crest" in found else None
@@ -177,7 +202,7 @@ def parse_rows(raw_text: str):
         )
 
     if not parsed:
-        raise ValueError("Nenhuma linha válida de valor de mercado foi identificada.")
+        raise ValueError("Nenhuma linha válida de valor de mercado foi identificada. A temporada deve estar no formato YYYY ou YYYY/YYYY.")
 
     return parsed, found, invalid
 

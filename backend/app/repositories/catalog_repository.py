@@ -10,13 +10,17 @@ def _rows(query: str, params=None):
         return [dict(r._mapping) for r in result]
 
 
-def list_countries(q: str | None = None):
+def list_countries(q: str | None = None, with_games: bool = False):
     where = "WHERE nome ILIKE :q" if q else ""
     params = {"q": f"%{q}%"} if q else {}
-    return _rows(
+    countries = _rows(
         f"SELECT id, nome, continente FROM {settings.app_schema}.paises {where} ORDER BY nome",
         params,
     )
+    if with_games:
+        from ..services.country_activity_service import filter_countries_with_games
+        return filter_countries_with_games(countries)
+    return countries
 
 
 def create_country(nome: str, continente: str):

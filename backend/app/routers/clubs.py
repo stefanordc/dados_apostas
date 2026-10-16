@@ -31,17 +31,20 @@ def club_stats(
     venue: str = Query(default="all", pattern="^(all|home|away)$"),
     result_filter: str = Query(default="all", pattern="^(all|win|draw|loss)$"),
 ):
-    data = calculate_club_stats(
-        club_id,
-        competition_id,
-        season,
-        None,
-        venue,
-        opponent,
-        result_filter,
+    # Retorna primeiro as estatísticas essenciais do perfil.
+    # O radar é carregado separadamente para não bloquear a tela inteira.
+    return calculate_club_stats(
+        club_id, competition_id, season, None, venue, opponent, result_filter
     )
-    data["strength_profile"] = strength_profile(club_id, competition_id, season)
-    return data
+
+
+@router.get("/{club_id}/strength-profile")
+def club_strength(
+    club_id: int,
+    competition_id: int | None = None,
+    season: str | None = None,
+):
+    return strength_profile(club_id, competition_id, season)
 
 
 @router.get("/{club_id}/market-value-evolution")

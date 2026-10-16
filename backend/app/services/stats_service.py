@@ -1,6 +1,9 @@
 import math
 from datetime import date
-from statistics import pstdev
+from statistics import median, pstdev
+
+from functools import lru_cache
+import time
 
 from sqlalchemy import text
 
@@ -172,6 +175,33 @@ def _avg(values):
     return sum(vals) / len(vals) if vals else None
 
 
+def _percentile(values, q):
+    vals = sorted(float(v) for v in values if v is not None and math.isfinite(float(v)))
+    if not vals:
+        return None
+    if len(vals) == 1:
+        return vals[0]
+    pos = (len(vals) - 1) * float(q)
+    lo, hi = int(math.floor(pos)), int(math.ceil(pos))
+    if lo == hi:
+        return vals[lo]
+    return vals[lo] + (vals[hi] - vals[lo]) * (pos - lo)
+
+
+def _pearson(xs, ys):
+    pairs = [(float(x), float(y)) for x, y in zip(xs, ys) if x is not None and y is not None and math.isfinite(float(x)) and math.isfinite(float(y))]
+    if len(pairs) < 5:
+        return None
+    xvals, yvals = zip(*pairs)
+    mx, my = sum(xvals) / len(xvals), sum(yvals) / len(yvals)
+    num = sum((x - mx) * (y - my) for x, y in pairs)
+    denx = math.sqrt(sum((x - mx) ** 2 for x in xvals))
+    deny = math.sqrt(sum((y - my) ** 2 for y in yvals))
+    if not denx or not deny:
+        return None
+    return num / (denx * deny)
+
+
 def _game_public(row):
     return {
         "date": row.get("date"),
@@ -242,7 +272,7 @@ def _winning_odd_band(perspective):
     return candidates[0]
 
 
-def calculate_club_stats(
+def _calculate_club_stats_uncached(
     club_id: int,
     competition_id: int | None = None,
     season: str | None = None,
@@ -394,6 +424,22 @@ def calculate_club_stats(
             {"club": club_id},
         ).scalar()
 
+    clean_sheets = sum(x["ga"] == 0 for x in perspective)
+    failed_to_score = sum(x["gf"] == 0 for x in perspective)
+    scored_2_plus = sum(x["gf"] >= 2 for x in perspective)
+    conceded_2_plus = sum(x["ga"] >= 2 for x in perspective)
+    std_gf = pstdev(gfvals) if len(gfvals) >= 2 else (0.0 if gfvals else None)
+    std_ga = pstdev(gavals) if len(gavals) >= 2 else (0.0 if gavals else None)
+    median_gf = median(gfvals) if gfvals else None
+    median_ga = median(gavals) if gavals else None
+    q1_gf, q3_gf = _percentile(gfvals, .25), _percentile(gfvals, .75)
+    q1_ga, q3_ga = _percentile(gavals, .25), _percentile(gavals, .75)
+    odds_for_corr = [x["odd"] for x in perspective]
+    points_for_corr = [3 if x["result"] == "W" else 1 if x["result"] == "D" else 0 for x in perspective]
+    corr_odd_points = _pearson(odds_for_corr, points_for_corr)
+    corr_odd_goals = _pearson(odds_for_corr, gfvals)
+    corr_gf_ga = _pearson(gfvals, gavals)
+
     return {
         "games": n,
         "wins": wins,
@@ -409,6 +455,19 @@ def calculate_club_stats(
         "cv_ppg": _cv(points),
         "avg_goals_for": gf / n if n else 0.0,
         "avg_goals_against": ga / n if n else 0.0,
+        "median_goals_for": median_gf,
+        "median_goals_against": median_ga,
+        "q1_goals_for": q1_gf,
+        "q3_goals_for": q3_gf,
+        "iqr_goals_for": (q3_gf - q1_gf) if q1_gf is not None and q3_gf is not None else None,
+        "q1_goals_against": q1_ga,
+        "q3_goals_against": q3_ga,
+        "iqr_goals_against": (q3_ga - q1_ga) if q1_ga is not None and q3_ga is not None else None,
+        "corr_odd_points": corr_odd_points,
+        "corr_odd_goals": corr_odd_goals,
+        "corr_goals_for_against": corr_gf_ga,
+        "std_goals_for": std_gf,
+        "std_goals_against": std_ga,
         "cv_goals_for": _cv(gfvals),
         "cv_goals_against": _cv(gavals),
         "avg_goal_diff": _avg(gdvals) or 0.0,
@@ -418,6 +477,10 @@ def calculate_club_stats(
         "over_25_pct": pct(sum(t > 2.5 for t in totals)),
         "over_35_pct": pct(sum(t > 3.5 for t in totals)),
         "btts_pct": pct(sum(x["gf"] > 0 and x["ga"] > 0 for x in perspective)),
+        "clean_sheet_pct": pct(clean_sheets),
+        "failed_to_score_pct": pct(failed_to_score),
+        "scored_2_plus_pct": pct(scored_2_plus),
+        "conceded_2_plus_pct": pct(conceded_2_plus),
         "avg_odd": _avg([x["odd"] for x in perspective]),
         "avg_win_odd": _avg(win_odds),
         "max_win_odd": float(max_win_row["odd"]) if max_win_row else None,
@@ -440,6 +503,44 @@ def calculate_club_stats(
         "biggest_wins": biggest_wins,
         "biggest_losses": biggest_losses,
     }
+
+
+def _stats_cache_bucket(seconds: int = 300) -> int:
+    return int(time.time() // seconds)
+
+
+@lru_cache(maxsize=512)
+def _calculate_club_stats_cached(
+    club_id: int,
+    competition_id: int | None,
+    season: str | None,
+    limit: int | None,
+    venue: str,
+    opponent: str | None,
+    result_filter: str,
+    season_cutoff: str | None,
+    bucket: int,
+):
+    return _calculate_club_stats_uncached(
+        club_id, competition_id, season, limit, venue, opponent, result_filter, season_cutoff
+    )
+
+
+def calculate_club_stats(
+    club_id: int,
+    competition_id: int | None = None,
+    season: str | None = None,
+    limit: int | None = None,
+    venue: str = "all",
+    opponent: str | None = None,
+    result_filter: str = "all",
+    season_cutoff: str | None = None,
+):
+    """Estatísticas do clube com cache curto para navegação rápida do perfil/backtest."""
+    return _calculate_club_stats_cached(
+        club_id, competition_id, season, limit, venue, opponent, result_filter,
+        season_cutoff, _stats_cache_bucket()
+    )
 
 
 def _poisson_pmf(lam: float, goals: int):

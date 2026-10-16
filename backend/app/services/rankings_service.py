@@ -70,11 +70,10 @@ def _all_seasons(country_id: int | None = None) -> list[str]:
 
 def filters(country_id: int | None = None):
     with app_engine.connect() as conn:
+        from ..repositories.catalog_repository import list_countries
         countries = [
-            dict(r)
-            for r in conn.execute(
-                text(f"SELECT id, nome FROM {settings.app_schema}.paises ORDER BY nome")
-            ).mappings()
+            {"id": country["id"], "nome": country["nome"]}
+            for country in list_countries(with_games=True)
         ]
         params = {}
         where = ""

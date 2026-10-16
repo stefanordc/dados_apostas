@@ -12,7 +12,14 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     let message = raw || `Erro HTTP ${res.status}`
     try {
       const parsed = JSON.parse(raw)
-      if (typeof parsed?.detail === 'string') message = parsed.detail
+      if (typeof parsed?.detail === 'string') {
+        message = parsed.detail
+      } else if (Array.isArray(parsed?.detail)) {
+        message = parsed.detail.map((item: any) => {
+          const loc = Array.isArray(item?.loc) ? item.loc.filter((x: any) => x !== 'body').join(' > ') : ''
+          return `${loc ? `${loc}: ` : ''}${item?.msg || 'Dados inválidos'}`
+        }).join(' | ')
+      }
     } catch {
       // mantém o texto original
     }

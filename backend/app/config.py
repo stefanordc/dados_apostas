@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     history_schema: str = "public"
     history_table: str = "historico_jogos"
     frontend_origin: str = "http://localhost:5173"
+    futpy_api_key: str = ""
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",

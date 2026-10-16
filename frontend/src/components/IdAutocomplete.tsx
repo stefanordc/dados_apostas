@@ -10,6 +10,8 @@ type Props = {
   required?: boolean
   disabled?: boolean
   placeholder?: string
+  loading?: boolean
+  emptyMessage?: string
 }
 
 export default function IdAutocomplete({
@@ -20,6 +22,8 @@ export default function IdAutocomplete({
   required,
   disabled,
   placeholder,
+  loading = false,
+  emptyMessage = 'Nenhuma opção encontrada',
 }: Props) {
   const [text, setText] = useState('')
   const [open, setOpen] = useState(false)
@@ -144,7 +148,7 @@ export default function IdAutocomplete({
               </button>
             ))
           ) : (
-            <div className="autocomplete-empty">Nenhuma opção encontrada</div>
+            <div className="autocomplete-empty" role="status">{loading ? 'Carregando opções...' : emptyMessage}</div>
           )}
         </div>
       )}

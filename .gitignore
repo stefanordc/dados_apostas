@@ -1,37 +1,36 @@
-@"
-# Python
-__pycache__/
-*.py[cod]
-*.pyo
-*.pyd
-.Python
-.venv/
-venv/
-env/
-
-# Node
-node_modules/
-frontend/node_modules/
-
-# Build
-dist/
-build/
-*.tsbuildinfo
-
-# Vite
-frontend/dist/
-
-# IDE
-.vscode/
-.idea/
-
-# Sistema
-.DS_Store
-Thumbs.db
-
-# Variáveis de ambiente
+# ===== Ambiente / Segredos =====
 .env
 .env.*
 !.env.example
-"@ | Set-Content .gitignore
+
+# ===== Python =====
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node / JS / TS =====
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# ===== Logs e cache =====
+*.log
+.cache/
+
+# ===== Editores / OS =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ===== Scripts locais / arquivos temporários =====
+iniciar.ps1
+atualizar_projeto.ps1
 download.zip

@@ -112,13 +112,14 @@ function quickMarketBulkSummary(raw:string){
     const firstLooksHeader=/temporada/i.test(lines[0])&&/clube/i.test(lines[0])
     rows=lines.slice(firstLooksHeader?1:0).map(line=>line.split(/\s{2,}/).map(x=>x.trim())).filter(r=>r.length>=3)
   }
-  const valid=rows.filter(r=>/^\d{4}\/\d{4}$/.test(r[0]||''))
+  const valid=rows.filter(r=>/^\d{4}(?:\/\d{4})?$/.test((r[0]||'').trim()))
   return {total_rows:valid.length,seasons:[...new Set(valid.map(r=>r[0]))].sort()}
 }
 
 export default function Cadastros() {
   const [tab, setTab] = useState<Tab>('valor')
   const [countries, setCountries] = useState<Item[]>([])
+  const [filterCountries, setFilterCountries] = useState<Item[]>([])
   const [competitions, setCompetitions] = useState<Item[]>([])
   const [clubs, setClubs] = useState<Item[]>([])
 
@@ -164,7 +165,10 @@ export default function Cadastros() {
   const [importAdditionalKey, setImportAdditionalKey] = useState(1)
   const [importLoading, setImportLoading] = useState(false)
 
-  const loadCountries = () => api<Item[]>('/api/countries').then(setCountries)
+  const loadCountries = () => Promise.all([
+    api<Item[]>('/api/countries').then(setCountries), // cadastro: permitir países novos
+    api<Item[]>('/api/countries?with_games=true').then(setFilterCountries), // filtro: somente com jogos
+  ])
 
   const loadClubs = (
     cid = country?.id,
@@ -852,12 +856,12 @@ export default function Cadastros() {
                 <span>Use o país, campeonato e moeda selecionados acima. A temporada vem de cada linha colada.</span>
               </div>
             </div>
-            <p className="muted">Formato: Temporada | Clube | Valor de mercado | Escudo. Se o clube ainda não existir, ele será cadastrado automaticamente e vinculado à temporada.</p>
+            <p className="muted">Formato: Temporada | Clube | Valor de mercado | Escudo. A temporada pode ser YYYY ou YYYY/YYYY. Se o clube ainda não existir, ele será cadastrado automaticamente e vinculado à temporada.</p>
             <textarea
               className="paste-area market-paste-area"
               value={marketBulkRaw}
               onChange={e => { setMarketBulkRaw(e.target.value); setMarketBulkPreview(null); setMarketBulkError('') }}
-              placeholder={'| Temporada | Clube | Valor de mercado | Escudo |\n| --- | --- | --- | --- |\n| 2010/2011 | Bayern de Munique | 308.980.000 | https://img.a.transfermarkt.technology/wappen/head/27.png |'}
+              placeholder={'| Temporada | Clube | Valor de mercado | Escudo |\n| --- | --- | --- | --- |\n| 2026 | Rosenborg | 30.750.000 | https://img.a.transfermarkt.technology/wappen/head/195.png |'}
             />
             <div className="bulk-actions">
               <button type="button" className="primary" onClick={previewMarketBulk} disabled={!marketBulkRaw.trim() || marketBulkLoading}>
@@ -991,7 +995,7 @@ export default function Cadastros() {
             <IdAutocomplete
               label="País"
               value={clubFilterCountry}
-              options={countries}
+              options={filterCountries}
               onChange={value => {
                 setClubFilterCountry(value)
                 setGridPage(1)

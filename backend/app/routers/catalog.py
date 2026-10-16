@@ -7,8 +7,8 @@ from ..services import market_value_service
 router = APIRouter(prefix="/api", tags=["cadastros"])
 
 @router.get("/countries")
-def countries(q: str | None = Query(default=None)):
-    return repo.list_countries(q)
+def countries(q: str | None = Query(default=None), with_games: bool = False):
+    return repo.list_countries(q, with_games=with_games)
 
 @router.post("/countries")
 def create_country(payload: CountryCreate):

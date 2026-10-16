@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Any
 
 class CountryCreate(BaseModel):
     nome: str = Field(min_length=1)
@@ -35,7 +35,7 @@ class MarketValueBulkRequest(BaseModel):
 class OddsPreviewRequest(BaseModel):
     pais_id: int
     campeonato_id: int
-    temporada: str = Field(min_length=1)
+    temporada: Optional[str] = None
     raw_text: str = Field(min_length=1)
 
 class OddsImportRequest(OddsPreviewRequest):
@@ -86,3 +86,57 @@ class ClubSeasonImportRequest(BaseModel):
     temporada: str = Field(min_length=1)
     clube_ids: list[int] = []
     novos_clubes: list[ImportAdditionalClub] = Field(default_factory=list, max_length=10)
+
+
+class ValueScannerRequest(BaseModel):
+    pais_id: int
+    campeonato_id: int
+    temporada_alvo: str = Field(min_length=1)
+    temporada_corte: str = Field(min_length=1)
+    raw_text: str = Field(min_length=1)
+    ev_minimo: float = Field(default=0.0, ge=-50.0, le=100.0)
+
+
+
+class ScannerInsightRequest(BaseModel):
+    campeonato_id: int
+    temporada_alvo: str = Field(min_length=1)
+    sequencia_vitorias: int = Field(default=3, ge=1, le=20)
+    proximo_mando: str = Field(default="home", pattern="^(home|away|any)$")
+    faixa_mo_min: Optional[float] = Field(default=None, gt=1)
+    faixa_mo_max: Optional[float] = Field(default=None, gt=1)
+    faixa_over25_min: Optional[float] = Field(default=None, gt=1)
+    faixa_over25_max: Optional[float] = Field(default=None, gt=1)
+
+
+class ScannerCondition(BaseModel):
+    field: str = Field(min_length=1)
+    operator: str = Field(min_length=1)
+    # Em comparações campo x campo não existe valor numérico fixo.
+    # O frontend envia compare_field e omite value; por isso ambos
+    # precisam ser aceitos explicitamente pelo contrato da API.
+    value: Optional[Any] = None
+    value2: Optional[Any] = None
+    compare_field: Optional[str] = None
+
+
+class ScannerMethodCreate(BaseModel):
+    nome: str = Field(min_length=1, max_length=160)
+    mercado: str = Field(min_length=1)
+    condicoes: list[ScannerCondition] = Field(default_factory=list)
+
+
+
+
+class ScannerGenerateMethodsRequest(BaseModel):
+    campeonato_id: int
+    temporada_alvo: str = Field(min_length=1)
+    quantidade: int = Field(default=10, ge=1, le=20)
+
+
+class ScannerBacktestRequest(BaseModel):
+    pais_id: int
+    campeonato_id: int
+    temporada_alvo: str = Field(min_length=1)
+    metodo_id: int
+    stake: float = Field(default=100.0, gt=0)

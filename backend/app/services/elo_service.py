@@ -1,6 +1,7 @@
 import math
 import re
 import unicodedata
+import time
 from collections import defaultdict
 from functools import lru_cache
 from datetime import date, datetime
@@ -178,14 +179,36 @@ def rebuild_if_complete(competition_id:int, season:str):
 
 
 def filters():
+    """
+    Filtros globais da página ELO.
+
+    Apenas países que já têm partidas no histórico aparecem no filtro.
+    Países sem jogos continuam disponíveis na tela de Cadastros.
+    """
     with app_engine.connect() as conn:
-        countries=[dict(r) for r in conn.execute(text(f"""
-            SELECT DISTINCT p.id,p.nome FROM {settings.app_schema}.valores_mercado vm
-            JOIN {settings.app_schema}.paises p ON p.id=vm.pais_id ORDER BY p.nome
-        """)).mappings()]
-        seasons=[str(r[0]) for r in conn.execute(text(f"SELECT DISTINCT temporada FROM {settings.app_schema}.valores_mercado")).all()]
-    seasons=sorted(seasons,key=season_key,reverse=True)
-    return {"countries":countries,"seasons":seasons}
+        from ..repositories.catalog_repository import list_countries
+        countries = [
+            {"id": country["id"], "nome": country["nome"]}
+            for country in list_countries(with_games=True)
+        ]
+
+        seasons = [
+            str(r[0])
+            for r in conn.execute(
+                text(f"""
+                    SELECT temporada FROM {settings.app_schema}.valores_mercado
+                    UNION
+                    SELECT temporada FROM {settings.app_schema}.clubes_campeonatos
+                    UNION
+                    SELECT temporada FROM {settings.app_schema}.odds_jogos
+                    ORDER BY 1
+                """)
+            ).all()
+            if r[0] is not None
+        ]
+
+    seasons = sorted(set(seasons), key=season_key, reverse=True)
+    return {"countries": countries, "seasons": seasons}
 
 
 
@@ -326,7 +349,7 @@ def _latest_strength_season(competition_id: int, club_ids: list[int], cutoff: st
     return None
 
 
-def strength_profile(club_id: int, competition_id: int | None = None, season: str | None = None):
+def _strength_profile_uncached(club_id: int, competition_id: int | None = None, season: str | None = None):
     """Historical/current strength profile for one club versus its league peers.
 
     If the selected/latest registered season has no played matches yet, the current
@@ -416,6 +439,20 @@ def strength_profile(club_id: int, competition_id: int | None = None, season: st
             "current_defense": current_peers.get("forca_defensiva"),
         },
     }
+
+
+def _strength_cache_bucket(seconds: int = 600) -> int:
+    return int(time.time() // seconds)
+
+
+@lru_cache(maxsize=256)
+def _strength_profile_cached(club_id: int, competition_id: int | None, season: str | None, bucket: int):
+    return _strength_profile_uncached(club_id, competition_id, season)
+
+
+def strength_profile(club_id: int, competition_id: int | None = None, season: str | None = None):
+    return _strength_profile_cached(club_id, competition_id, season, _strength_cache_bucket())
+
 
 def matchup_strengths(home_id: int, away_id: int, competition_id: int, season: str):
     reference = _latest_strength_season(competition_id, [home_id, away_id], season)

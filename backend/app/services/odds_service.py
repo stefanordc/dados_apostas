@@ -12,6 +12,7 @@ from ..db import app_engine
 from .elo_service import normalize_name
 
 HEADER_ALIASES = {
+    "season": {"temporada", "season"},
     "date": {"date", "data", "matchdate"},
     "round": {"round", "rodada", "fase", "stage"},
     "home": {"home", "hometeam", "casa", "mandante", "timecasa"},
@@ -59,6 +60,36 @@ def parse_date(v):
         except ValueError:
             pass
     return None
+
+
+def normalize_season(value: str | None) -> str:
+    raw = str(value or "").strip().replace("-", "/")
+    if not raw:
+        return ""
+    m = re.fullmatch(r"(\d{4})/(\d{4})", raw)
+    if m:
+        return f"{m.group(1)}/{m.group(2)}"
+    m = re.fullmatch(r"(\d{4})/(\d{2})", raw)
+    if m:
+        start = int(m.group(1))
+        end = (start // 100) * 100 + int(m.group(2))
+        if end < start:
+            end += 100
+        return f"{start:04d}/{end:04d}"
+    m = re.fullmatch(r"(\d{4})", raw)
+    if m:
+        start = int(m.group(1))
+        return f"{start:04d}/{start + 1:04d}"
+    raise ValueError(f"Temporada inválida: {raw}. Use o padrão 2020/2021.")
+
+
+def _season_summary(seasons: list[str]) -> str:
+    ordered = sorted(set(seasons))
+    if not ordered:
+        return "—"
+    if len(ordered) == 1:
+        return ordered[0]
+    return f"{ordered[0]} → {ordered[-1]} ({len(ordered)} temporadas)"
 
 
 def _is_markdown_separator(cells: list[str]) -> bool:
@@ -151,7 +182,7 @@ def _headerless_rows(raw_text: str):
     return headers, rows
 
 
-def parse_rows(raw_text: str):
+def parse_rows(raw_text: str, fallback_season: str | None = None):
     raw_text = (raw_text or "").strip()
     if not raw_text:
         raise ValueError("Cole as odds antes de validar.")
@@ -182,6 +213,10 @@ def parse_rows(raw_text: str):
               "HomeTeam/AwayTeam/B365H/B365D/B365A e equivalentes."
         )
 
+    normalized_fallback = normalize_season(fallback_season) if fallback_season else ""
+    if "season" not in found and not normalized_fallback:
+        raise ValueError("A coluna Temporada é obrigatória quando nenhuma temporada de fallback foi informada.")
+
     rows = []
     for idx, row in enumerate(raw_rows, 1):
         home = str(row.get(found["home"]) or "").strip()
@@ -196,10 +231,19 @@ def parse_rows(raw_text: str):
         away_odd = parse_num(row.get(found["away_odd"]))
         if not all(v is not None and v > 1 for v in (home_odd, draw_odd, away_odd)):
             continue
+        season_value = (
+            normalize_season(row.get(found["season"]))
+            if "season" in found and str(row.get(found["season"]) or "").strip()
+            else normalized_fallback
+        )
+        match_date = parse_date(row.get(found.get("date", ""))) if "date" in found else None
+        if not match_date:
+            raise ValueError(f"Linha {idx}: data inválida ou ausente. Use dd/mm/aaaa.")
         rows.append(
             {
                 "row": idx,
-                "date": parse_date(row.get(found.get("date", ""))) if "date" in found else None,
+                "season": season_value,
+                "date": match_date,
                 "round": str(row.get(found.get("round", "")) or "").strip() if "round" in found else "",
                 "home": home,
                 "away": away,
@@ -251,11 +295,67 @@ def registry(competition_id: int):
     return clubs, mp
 
 
-def preview(pais_id: int, competition_id: int, temporada: str, raw_text: str):
-    rows, found = parse_rows(raw_text)
+def _resolved_key(competition_id: int, r: dict, home_id: int, away_id: int):
+    return (
+        int(competition_id),
+        r["season"],
+        r["date"],
+        int(home_id),
+        int(away_id),
+    )
+
+
+def _display_duplicate(r: dict):
+    return {
+        "season": r["season"],
+        "date": r["date"].strftime("%d/%m/%Y") if r.get("date") else "—",
+        "home": r["home"],
+        "away": r["away"],
+    }
+
+
+def _existing_keys(conn, competition_id: int, resolved_rows: list[tuple[dict, int, int]]):
+    if not resolved_rows:
+        return set()
+
+    seasons = sorted({r["season"] for r, _, _ in resolved_rows})
+    dates = sorted({r["date"] for r, _, _ in resolved_rows})
+    club_ids = sorted({cid for _, h, a in resolved_rows for cid in (h, a)})
+
+    rows = conn.execute(
+        text(
+            f"""
+            SELECT campeonato_id, temporada, data, clube_casa_id, clube_fora_id
+            FROM {settings.app_schema}.odds_jogos
+            WHERE campeonato_id = :c
+              AND temporada = ANY(:seasons)
+              AND data = ANY(:dates)
+              AND clube_casa_id = ANY(:club_ids)
+              AND clube_fora_id = ANY(:club_ids)
+            """
+        ),
+        {
+            "c": competition_id,
+            "seasons": seasons,
+            "dates": dates,
+            "club_ids": club_ids,
+        },
+    ).all()
+    return {
+        (int(c), str(season), date, int(home_id), int(away_id))
+        for c, season, date, home_id, away_id in rows
+    }
+
+
+def preview(pais_id: int, competition_id: int, temporada: str | None, raw_text: str):
+    rows, found = parse_rows(raw_text, temporada)
     clubs, mp = registry(competition_id)
     unresolved = set()
     recognized = 0
+    resolved_rows = []
+    seen = set()
+    duplicates_in_paste = []
+
     for r in rows:
         h = mp.get(normalize_name(r["home"]))
         a = mp.get(normalize_name(r["away"]))
@@ -263,12 +363,34 @@ def preview(pais_id: int, competition_id: int, temporada: str, raw_text: str):
         r["away_club_id"] = a
         if h and a:
             recognized += 1
+            key = _resolved_key(competition_id, r, h, a)
+            if key in seen:
+                duplicates_in_paste.append(_display_duplicate(r))
+            else:
+                seen.add(key)
+                resolved_rows.append((r, h, a))
         if not h:
             unresolved.add(r["home"])
         if not a:
             unresolved.add(r["away"])
-        if r["date"]:
-            r["date"] = r["date"].isoformat()
+
+    with app_engine.connect() as conn:
+        existing_keys = _existing_keys(conn, competition_id, resolved_rows)
+
+    duplicates_existing = [
+        _display_duplicate(r)
+        for r, h, a in resolved_rows
+        if _resolved_key(competition_id, r, h, a) in existing_keys
+    ]
+
+    preview_rows = []
+    for r in rows[:12]:
+        item = dict(r)
+        if item.get("date"):
+            item["date"] = item["date"].isoformat()
+        preview_rows.append(item)
+
+    seasons = sorted({r["season"] for r in rows})
     return {
         "total_rows": len(rows),
         "recognized_rows": recognized,
@@ -277,38 +399,93 @@ def preview(pais_id: int, competition_id: int, temporada: str, raw_text: str):
         "detected_columns": found,
         "has_over_25": "over_25" in found,
         "has_under_25": "under_25" in found,
-        "sample": rows[:12],
+        "seasons": seasons,
+        "season_count": len(seasons),
+        "duplicate_in_paste_count": len(duplicates_in_paste),
+        "duplicate_existing_count": len(duplicates_existing),
+        "duplicates_in_paste": duplicates_in_paste[:20],
+        "duplicates_existing": duplicates_existing[:20],
+        "sample": preview_rows,
     }
 
 
 def _match_source_key(competition_id: int, temporada: str, r: dict, home_id: int, away_id: int):
     anchor = r["date"].isoformat() if r["date"] else (r.get("round") or f"row-{r['row']}")
-    raw_key = f"v2|{competition_id}|{temporada}|{anchor}|{home_id}|{away_id}"
+    raw_key = f"v3|{competition_id}|{temporada}|{anchor}|{home_id}|{away_id}"
     return hashlib.sha1(raw_key.encode("utf-8")).hexdigest()
 
 
-def import_data(pais_id: int, competition_id: int, temporada: str, raw_text: str, mappings: dict[str, int]):
-    rows, _ = parse_rows(raw_text)
+def import_data(
+    pais_id: int,
+    competition_id: int,
+    temporada: str | None,
+    raw_text: str,
+    mappings: dict[str, int],
+):
+    rows, _ = parse_rows(raw_text, temporada)
     _, mp = registry(competition_id)
     normalized_mappings = {normalize_name(k): int(v) for k, v in mappings.items()}
     mp.update(normalized_mappings)
+
     unresolved = set()
+    resolved_rows = []
+    seen = set()
+    duplicates_in_paste = 0
+
+    for r in rows:
+        h = mp.get(normalize_name(r["home"]))
+        a = mp.get(normalize_name(r["away"]))
+        if not h:
+            unresolved.add(r["home"])
+        if not a:
+            unresolved.add(r["away"])
+        if not h or not a:
+            continue
+
+        key = _resolved_key(competition_id, r, h, a)
+        if key in seen:
+            duplicates_in_paste += 1
+            continue
+        seen.add(key)
+        resolved_rows.append((r, h, a))
+
+    if unresolved:
+        raise ValueError(
+            "Existem clubes ainda não conciliados: " + ", ".join(sorted(unresolved))
+        )
+
     imported = 0
+    duplicates_existing = 0
+    seasons = sorted({r["season"] for r, _, _ in resolved_rows})
 
     with app_engine.begin() as conn:
+        existing_keys = _existing_keys(conn, competition_id, resolved_rows)
+        rows_to_import = [
+            (r, h, a)
+            for r, h, a in resolved_rows
+            if _resolved_key(competition_id, r, h, a) not in existing_keys
+        ]
+        duplicates_existing = len(resolved_rows) - len(rows_to_import)
+
+        if not rows_to_import:
+            raise ValueError(
+                "Nenhum jogo novo para importar. Todas as linhas válidas já estão cadastradas "
+                "ou estão repetidas dentro da própria colagem."
+            )
+
         batch_id = conn.execute(
             text(
                 f"""
                 INSERT INTO {settings.app_schema}.odds_importacoes
                     (pais_id, campeonato_id, temporada, total_linhas, linhas_importadas, origem, resumo_hash)
-                VALUES (:p, :c, :s, :total, 0, 'manual', :hash)
+                VALUES (:p, :c, :s, :total, 0, 'manual-multitemporada', :hash)
                 RETURNING id
                 """
             ),
             {
                 "p": pais_id,
                 "c": competition_id,
-                "s": temporada,
+                "s": _season_summary(seasons),
                 "total": len(rows),
                 "hash": hashlib.sha1(raw_text.encode("utf-8")).hexdigest(),
             },
@@ -327,21 +504,12 @@ def import_data(pais_id: int, competition_id: int, temporada: str, raw_text: str
                 {"club": cid, "c": competition_id, "alias": source.strip()},
             )
 
-        for r in rows:
-            h = mp.get(normalize_name(r["home"]))
-            a = mp.get(normalize_name(r["away"]))
-            if not h:
-                unresolved.add(r["home"])
-            if not a:
-                unresolved.add(r["away"])
-            if not h or not a:
-                continue
-
-            key = _match_source_key(competition_id, temporada, r, h, a)
+        for r, h, a in rows_to_import:
+            key = _match_source_key(competition_id, r["season"], r, h, a)
             params = {
                 "p": pais_id,
                 "c": competition_id,
-                "s": temporada,
+                "s": r["season"],
                 "date": r["date"],
                 "round": r["round"] or None,
                 "h": h,
@@ -357,59 +525,28 @@ def import_data(pais_id: int, competition_id: int, temporada: str, raw_text: str
                 "batch": batch_id,
             }
 
-            updated = 0
-            if r["date"] is not None:
-                result = conn.execute(
-                    text(
-                        f"""
-                        UPDATE {settings.app_schema}.odds_jogos
-                        SET rodada = :round,
-                            mandante_origem = :ho,
-                            visitante_origem = :ao,
-                            odd_casa = :oh,
-                            odd_empate = :od,
-                            odd_fora = :oa,
-                            odd_over_25 = :o25,
-                            odd_under_25 = :u25,
-                            source_key = :key,
-                            carga_id = :batch,
-                            atualizado_em = NOW()
-                        WHERE campeonato_id = :c
-                          AND temporada = :s
-                          AND data = :date
-                          AND clube_casa_id = :h
-                          AND clube_fora_id = :a
-                        """
-                    ),
-                    params,
-                )
-                updated = result.rowcount or 0
-
-            if not updated:
-                conn.execute(
-                    text(
-                        f"""
-                        INSERT INTO {settings.app_schema}.odds_jogos
-                            (pais_id, campeonato_id, temporada, data, rodada,
-                             clube_casa_id, clube_fora_id, mandante_origem, visitante_origem,
-                             odd_casa, odd_empate, odd_fora, odd_over_25, odd_under_25,
-                             source_key, carga_id)
-                        VALUES
-                            (:p, :c, :s, :date, :round, :h, :a, :ho, :ao,
-                             :oh, :od, :oa, :o25, :u25, :key, :batch)
-                        ON CONFLICT (source_key) DO UPDATE SET
-                            odd_casa = EXCLUDED.odd_casa,
-                            odd_empate = EXCLUDED.odd_empate,
-                            odd_fora = EXCLUDED.odd_fora,
-                            odd_over_25 = EXCLUDED.odd_over_25,
-                            odd_under_25 = EXCLUDED.odd_under_25,
-                            carga_id = EXCLUDED.carga_id,
-                            atualizado_em = NOW()
-                        """
-                    ),
-                    params,
-                )
-            imported += 1
+            result = conn.execute(
+                text(
+                    f"""
+                    INSERT INTO {settings.app_schema}.odds_jogos
+                        (pais_id, campeonato_id, temporada, data, rodada,
+                         clube_casa_id, clube_fora_id, mandante_origem, visitante_origem,
+                         odd_casa, odd_empate, odd_fora, odd_over_25, odd_under_25,
+                         source_key, carga_id)
+                    VALUES
+                        (:p, :c, :s, :date, :round, :h, :a, :ho, :ao,
+                         :oh, :od, :oa, :o25, :u25, :key, :batch)
+                    ON CONFLICT (campeonato_id, temporada, data, clube_casa_id, clube_fora_id)
+                    WHERE data IS NOT NULL
+                    DO NOTHING
+                    """
+                ),
+                params,
+            )
+            if (result.rowcount or 0) > 0:
+                imported += 1
+            else:
+                duplicates_existing += 1
 
         conn.execute(
             text(
@@ -425,10 +562,13 @@ def import_data(pais_id: int, competition_id: int, temporada: str, raw_text: str
     return {
         "batch_id": int(batch_id),
         "imported": imported,
-        "unresolved": sorted(unresolved),
+        "duplicates_skipped": duplicates_existing + duplicates_in_paste,
+        "duplicates_existing": duplicates_existing,
+        "duplicates_in_paste": duplicates_in_paste,
+        "unresolved": [],
         "total_rows": len(rows),
+        "seasons": seasons,
     }
-
 
 def list_imports(limit: int = 10):
     limit = max(1, min(int(limit), 50))
