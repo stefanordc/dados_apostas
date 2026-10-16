@@ -1,0 +1,15 @@
+import { Navigate, Route, Routes } from 'react-router-dom'
+import Layout from './components/Layout'
+import Cadastros from './pages/Cadastros'
+import Historico from './pages/Historico'
+import ELOClubes from './pages/ELOClubes'
+import Clubes from './pages/Clubes'
+import Estatisticas from './pages/Backtesting'
+import Scanner from './pages/Scanner'
+import MatchBacktesting from './pages/MatchBacktesting'
+import Rankings from './pages/Rankings'
+import BetTeste from './pages/BetTeste'
+
+import Jogadores from './pages/Jogadores'
+import RankingIndividual from './pages/RankingIndividual'
+export default function App(){return <Routes><Route element={<Layout/>}><Route path="/" element={<Navigate to="/elo" replace/>}/><Route path="/elo" element={<ELOClubes/>}/><Route path="/backtest" element={<Navigate to="/backtesting" replace/>}/><Route path="/scanner" element={<Scanner/>}/><Route path="/backtesting" element={<MatchBacktesting/>}/><Route path="/estatisticas" element={<Estatisticas/>}/><Route path="/rankings" element={<Rankings/>}/><Route path="/bet-teste" element={<BetTeste/>}/><Route path="/clubes" element={<Clubes/>}/><Route path="/jogadores" element={<Jogadores/>}/><Route path="/ranking-individual" element={<RankingIndividual/>}/><Route path="/historico" element={<Historico/>}/><Route path="/cadastros" element={<Cadastros/>}/></Route></Routes>}

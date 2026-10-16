@@ -1,0 +1,132 @@
+/* Camada visual moderna: tipografia, raios, sombras e componentes principais.
+   As cores vêm das variáveis de theme-tokens.css (claro/escuro). */
+:root{
+  --radius:12px;--radius-sm:8px;
+  --shadow:0 1px 2px rgba(15,30,45,.06),0 4px 14px rgba(15,30,45,.05);
+  --shadow-lg:0 8px 28px rgba(15,30,45,.12);
+  --accent:#0ea5e9;--accent-strong:#0284c7;
+  --glass:rgba(255,255,255,.82);
+  font-family:Inter,"Segoe UI Variable","Segoe UI",system-ui,-apple-system,Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+:root[data-theme="dark"]{
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 6px 18px rgba(0,0,0,.28);
+  --shadow-lg:0 10px 32px rgba(0,0,0,.5);
+  --accent:#38bdf8;--accent-strong:#0ea5e9;
+  --glass:rgba(17,22,28,.8);
+}
+body{font-size:14px;line-height:1.45;transition:background-color .2s,color .2s}
+h1,h2,h3{letter-spacing:-.015em}
+::selection{background:var(--accent);color:#fff}
+*{scrollbar-width:thin;scrollbar-color:var(--cc6d0d7) transparent}
+
+/* Cabeçalho e navegação lateral */
+.global-header{background:var(--glass);backdrop-filter:saturate(1.4) blur(12px);border-bottom:1px solid var(--cdfe5e9);box-shadow:none;height:58px}
+.app-shell{grid-template-columns:224px 1fr;grid-template-rows:58px 1fr}
+.brand strong{font-size:16px;letter-spacing:.06em;font-weight:800}
+.global-search{border-radius:999px;border-color:var(--cdfe5e9);padding:0 16px;font-size:12px}
+.header-status{font-size:12px}
+.status-dot{box-shadow:0 0 0 3px rgba(57,183,124,.22)}
+.sidebar{background:var(--cf8f9fa);padding:18px 12px;border-right:1px solid var(--cdfe5e9);min-height:calc(100vh - 58px)}
+.sidebar-label{font-size:10px;letter-spacing:.14em}
+.sidebar a{border-left:0;border-radius:var(--radius-sm);padding:10px 12px;font-weight:600;transition:background .15s,color .15s}
+.sidebar a.active{background:color-mix(in srgb,var(--accent) 16%,transparent);color:var(--accent-strong);box-shadow:inset 3px 0 0 var(--accent)}
+:root[data-theme="dark"] .sidebar a.active{color:var(--accent)}
+.workspace{padding:24px 28px 56px}
+
+/* Alternância de tema */
+.theme-toggle{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 13px;border-radius:999px;border:1px solid var(--cd7dde2);background:var(--cffffff);color:var(--c44515b);font-size:12px;font-weight:600;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+.theme-toggle:hover{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+.theme-toggle:focus-visible,button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* Cartões / painéis */
+.panel,.a3-panel,.bt-tabs,.a3-analysis-tabs{border-radius:var(--radius);box-shadow:var(--shadow)}
+.panel,.a3-panel{border-color:var(--cdfe5e9)}
+.a3-panel{padding:22px 24px}
+.a3-panel h2,.panel h2{font-size:16px;font-weight:700}
+.a3-head h1,.page-header h1{font-weight:700;letter-spacing:-.025em}
+.a3-head small,.eyebrow,.bt-eyebrow{letter-spacing:.16em}
+.a3-source{border-radius:999px}
+
+/* Abas em formato de pílula */
+.a3-analysis-tabs,.bt-tabs{gap:6px;padding:7px}
+.a3-analysis-tabs button,.bt-tabs button,.bt-club-market-tabs button,.subtabs button,.result-tabs button{border-radius:9px;transition:background .15s,color .15s,border-color .15s}
+.a3-analysis-tabs button{border-color:transparent;background:transparent;padding:10px 18px;font-weight:600}
+.a3-analysis-tabs button:hover:not(.selected){background:var(--cf1f5f7)}
+.a3-analysis-tabs button.selected,.bt-tabs button.current{background:var(--accent);border-color:var(--accent);color:#fff}
+
+/* Botões e campos */
+button{transition:filter .15s,transform .05s,box-shadow .15s}
+.a3-actions button,.a3-ev-filters button{background:var(--accent);border:0;color:#fff;border-radius:9px;font-weight:600;padding:10px 20px;cursor:pointer}
+.a3-actions button:hover:not(:disabled),.a3-ev-filters button:hover:not(:disabled){filter:brightness(1.08);box-shadow:var(--shadow)}
+.a3-actions button:active:not(:disabled){transform:translateY(1px)}
+.a3-actions button:disabled,.a3-ev-filters button:disabled{opacity:.55;cursor:not-allowed}
+input,select,textarea{border-radius:var(--radius-sm)!important;background:var(--cffffff);color:var(--ink);transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--accent)!important;box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent);outline:none}
+table{border-collapse:collapse}
+tbody tr{transition:background .12s}
+tbody tr:hover{background:color-mix(in srgb,var(--accent) 7%,transparent)}
+
+/* Barras de comparação entre clubes */
+.a3-duel-track,.a3-minute-track,.a3-prob-track,.a3-cs-track{border-radius:999px}
+.a3-duel-track i{background:linear-gradient(90deg,#0891b2,#38bdf8);border-radius:999px}
+.a3-duel-side.right .a3-duel-track i{background:linear-gradient(90deg,#f59e0b,#fb923c)}
+.a3-duel-row{transition:background .12s;border-radius:var(--radius-sm)}
+.a3-duel-row:hover{background:color-mix(in srgb,var(--accent) 6%,transparent)}
+.a3-versus{border-radius:var(--radius);box-shadow:var(--shadow)}
+.a3-warning,.a3-error{border-radius:var(--radius-sm)}
+.a3-cs-stack{border-radius:999px}
+.cs-winning{background:#22c55e}.cs-drawing{background:#94a3b8}.cs-losing{background:#ef4444}
+
+@media(max-width:900px){.global-search{display:none}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* Faixa do confronto: sempre escura, com escudos */
+.a3-versus{background:linear-gradient(135deg,#0b2233 0%,#12435c 55%,#0b2233 100%);border:1px solid rgba(255,255,255,.08);color:#fff;padding:22px 28px;grid-template-columns:1fr 56px 1fr}
+.a3-versus>span{color:#fbbf24;font-size:26px;font-weight:300}
+.a3-team-badge{display:flex;align-items:center;justify-content:center;gap:16px;min-width:0}
+.a3-team-badge strong{font-size:23px;font-weight:700;letter-spacing:-.01em;overflow-wrap:anywhere}
+.a3-team-badge img{width:56px;height:56px;object-fit:contain;filter:drop-shadow(0 2px 6px rgba(0,0,0,.4))}
+.a3-badge-fallback{display:grid;place-items:center;width:56px;height:56px;border-radius:50%;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.22);font-weight:800;font-size:18px;letter-spacing:.04em}
+@media(max-width:600px){.a3-team-badge{flex-direction:column;gap:8px}.a3-team-badge strong{font-size:16px}.a3-versus{padding:16px 10px;grid-template-columns:1fr 28px 1fr}}
+
+/* Ajustes específicos do tema escuro: cartões, trilhas e cores dos clubes */
+:root[data-theme="dark"]{--surface-2:#2a2e33;--surface-3:#363b41;--edge:#3b4148}
+:root[data-theme="dark"] .a3-score-grid article,
+:root[data-theme="dark"] .a3-prob-card,
+:root[data-theme="dark"] .a3-expected-grid>div,
+:root[data-theme="dark"] .a3-score-projections article,
+:root[data-theme="dark"] .a3-cards>*{background:var(--surface-2);border-color:var(--edge)}
+:root[data-theme="dark"] .a3-duel-track,
+:root[data-theme="dark"] .a3-minute-track,
+:root[data-theme="dark"] .a3-prob-track,
+:root[data-theme="dark"] .a3-cs-track,
+:root[data-theme="dark"] .a3-cs-stack{background:var(--surface-3)}
+:root[data-theme="dark"] .a3-duel-side>span,
+:root[data-theme="dark"] .a3-score-grid strong,
+:root[data-theme="dark"] .a3-minute-half>span{color:#38bdf8}
+:root[data-theme="dark"] .a3-duel-side.right>span,
+:root[data-theme="dark"] .a3-score-grid strong:last-child,
+:root[data-theme="dark"] .a3-minute-half:last-child>span{color:#fb923c}
+:root[data-theme="dark"] .a3-duel-row{border-bottom-color:var(--edge)}
+:root[data-theme="dark"] .a3-duel-row>strong,:root[data-theme="dark"] .a3-side-head strong{color:#e2e8f0}
+:root[data-theme="dark"] .a3-duel-track i{background:linear-gradient(90deg,#0ea5e9,#7dd3fc);box-shadow:0 0 10px rgba(56,189,248,.35)}
+:root[data-theme="dark"] .a3-duel-side.right .a3-duel-track i{background:linear-gradient(90deg,#f97316,#fdba74);box-shadow:0 0 10px rgba(251,146,60,.3)}
+:root[data-theme="dark"] .a3-score-grid small,:root[data-theme="dark"] .a3-prob-card small{color:#94a3b8}
+:root[data-theme="dark"] .a3-prob-card strong,:root[data-theme="dark"] .a3-cards strong{color:#7dd3fc}
+
+/* Menu lateral recolhível */
+.sidebar-toggle{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:var(--radius-sm);border:1px solid var(--cdfe5e9);background:transparent;color:var(--ink);cursor:pointer;flex:none}
+.sidebar-toggle:hover{background:color-mix(in srgb,var(--accent) 14%,transparent);border-color:var(--accent)}
+.global-header{gap:16px}.brand{min-width:0}
+.app-shell{transition:grid-template-columns .2s ease}
+.sidebar a{display:flex;align-items:center;gap:12px}
+.sidebar .nav-icon{display:inline-grid;place-items:center;width:22px;flex:none}
+.sidebar .nav-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.app-shell.collapsed{grid-template-columns:68px 1fr}
+.app-shell.collapsed .sidebar{padding:18px 8px;overflow:hidden}
+.app-shell.collapsed .sidebar a{justify-content:center;padding:11px 0}
+.app-shell.collapsed .sidebar .nav-text{display:none}
+.app-shell.collapsed .sidebar-label{font-size:0;height:1px;padding:0;margin:10px 8px;background:var(--cdfe5e9)}
+.app-shell.collapsed .sidebar-label.second{margin-top:14px}
+@media(prefers-reduced-motion:reduce){.app-shell{transition:none}}

@@ -1,0 +1,36 @@
+# ===== Ambiente / Segredos =====
+.env
+.env.*
+!.env.example
+
+# ===== Python =====
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== Node / JS / TS =====
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+npm-debug.log*
+yarn-error.log*
+
+# ===== Logs e cache =====
+*.log
+.cache/
+
+# ===== Editores / OS =====
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ===== Scripts locais / arquivos temporários =====
+iniciar.ps1
+atualizar_projeto.ps1
+download.zip
